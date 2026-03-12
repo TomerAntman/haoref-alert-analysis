@@ -9,7 +9,7 @@ import pandas as pd
 parser = argparse.ArgumentParser()
 parser.add_argument("--input",       default="PikudHaOref_alerts.csv")
 parser.add_argument("--mapping",     default="districts_eng_with_hebrew_areas.json")
-parser.add_argument("--output-dir",  default=".")
+parser.add_argument("--output-dir",  default="./output_csvs")
 parser.add_argument("--min-pre",  type=float, default=1.0,  help="Min minutes: warning → missile")
 parser.add_argument("--max-pre",  type=float, default=30.0, help="Max minutes: warning → missile")
 parser.add_argument("--min-post", type=float, default=5.0,  help="Min minutes: missile → ended")
@@ -32,7 +32,7 @@ AREA_MERGE = {
     "Upper Galilee":      "Galilee",
     "Lower Galilee":      "Galilee",
     "Center Galilee":     "Galilee",
-    "Confrontation Line": "Galilee",
+    "Confrontation Line": "Conf. Line",
     "Yehuda":             "Judea & Samaria",
     "Shomron":            "Judea & Samaria",
     "Shfelat Yehuda":     "Judea & Samaria",
@@ -306,13 +306,22 @@ def area_stats(label, df_in, gap_col):
         .sort_values("median")
         .reset_index()
     )
+    cities_per_area = (
+        df.groupby("area")["city"]
+        .nunique()
+        .rename("cities")
+        .reset_index()
+    )
+    stats = stats.merge(cities_per_area, on="area", how="left")
+    stats["events_per_city"] = stats["n"] / stats["cities"]
     stats["range"] = stats["min"].round(1).astype(str) + "–" + stats["max"].round(1).astype(str)
 
     print(f"\n{label}")
-    print(f"{'Area':<22} {'n':>6} {'median':>8} {'mean':>8} {'Q25':>7} {'Q75':>7} {'range':>12}")
-    print("─" * 74)
+    print(f"{'Area':<22} {'n':>6} {'cities':>8} {'evt/city':>9} {'median':>8} {'mean':>8} {'Q25':>7} {'Q75':>7} {'range':>12}")
+    # "n" means number of records (warning→missile or missile→ended) for this area.
+    print("─" * 97)
     for _, r in stats.iterrows():
-        print(f"{r['area']:<22} {r['n']:>6.0f} {r['median']:>8.1f} {r['mean']:>8.1f} "
+        print(f"{r['area']:<22} {r['n']:>6.0f} {r['cities']:>8.0f} {r['events_per_city']:>9.2f} {r['median']:>8.1f} {r['mean']:>8.1f} "
               f"{r['q25']:>7.1f} {r['q75']:>7.1f} {r['range']:>12}")
 
     medians = stats["median"]
