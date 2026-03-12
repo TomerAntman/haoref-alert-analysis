@@ -130,27 +130,54 @@ python analyze_pakar_alerts.py \
 
 ---
 
-## Sample output
-
-Warning lead times by area (partial dataset, Mar 10–11 2026):
-
+## 28/2 - 12/02 output
 ```
-Area                        n   median     mean     Q25     Q75        range
-──────────────────────────────────────────────────────────────────────────
-Golan                      15      2.8      2.9     2.8     2.8      2.8–3.4
-Jerusalem                  50      4.3      4.7     4.0     6.2      3.2–6.2
-Jordan Valley              98      4.5      5.2     4.1     6.7      2.5–8.4
-Greater Tel Aviv          238      5.3      5.7     4.6     6.0      3.9–9.9
-Sharon                    472      5.3      6.2     4.8     7.2     2.9–11.2
-Judea & Samaria           433      5.8      5.7     4.5     6.7     3.0–11.3
-Lachish Region            161      6.0      6.2     5.5     7.2     4.0–18.9
-Haifa Region              143      6.4      6.4     6.2     6.4      6.2–8.6
-Galilee                   161      8.8      9.2     8.8     9.9     2.9–10.6
+Warning → Missiles (gap in minutes)
+Area                        n   cities  evt/city   median     mean     Q25     Q75        range
+─────────────────────────────────────────────────────────────────────────────────────────────────
+Jerusalem                 395       16     24.69      5.7      7.0     4.0     7.0     1.3–29.4
+Greater Tel Aviv         1884       47     40.09      5.8      6.1     4.4     7.1     1.0–24.6
+Judea & Samaria          4095      185     22.14      6.1      7.6     4.7     7.7     1.2–29.2
+Lachish Region           1559      107     14.57      6.2      7.4     5.1     7.6     1.3–28.2
+Haifa Region             1100       92     11.96      6.2      6.3     4.5     7.3     1.2–17.9
+Jordan Valley             990       71     13.94      6.5      7.5     4.6     8.4     1.2–27.6
+Sharon                   3907      127     30.76      6.5      7.7     5.3     7.8     1.2–24.7
+Golan                     419       48      8.73      6.6      7.4     4.3     8.8     2.5–18.4
+Jezreel Valley            860       92      9.35      6.8      6.8     4.7     7.9     1.2–18.3
+Galilee                  2074      137     15.14      6.8      6.9     4.5     7.9     2.0–24.2
+Negev                    1067       88     12.12      7.0      7.1     6.3     7.7     4.7–29.6
+Conf. Line                756       89      8.49      7.3      8.6     4.6    11.1     1.8–28.2
+Gaza Envelope             289       42      6.88      7.5      8.8     6.7     8.2     2.7–29.6
+Arava                       2        1      2.00      8.0      8.0     7.0     9.0     6.0–10.0
 
-  Median of area medians: 5.5 min
-  Overall range:          2.5 – 18.9 min
+  Mean of area medians:   6.6 min
+  Median of area medians: 6.6 min
+  Overall range:          1.1 – 29.6 min
+
+Missiles → Ended   (gap in minutes)
+Area                        n   cities  evt/city   median     mean     Q25     Q75        range
+─────────────────────────────────────────────────────────────────────────────────────────────────
+Eilat                       1        1      1.00      7.5      7.5     7.5     7.5      7.5–7.5
+Conf. Line               1590       89     17.87     11.0     12.9     9.8    14.0     5.0–44.7
+Arava                      11        9      1.22     11.1     10.9    10.4    12.0     7.8–12.6
+Golan                     349       49      7.12     11.2     12.4    10.4    12.2     5.4–56.5
+Haifa Region              764       97      7.88     11.5     12.1    10.8    12.3     8.1–21.2
+Jordan Valley             724       71     10.20     11.5     12.7    10.7    13.0     5.6–29.0
+Galilee                  1313      139      9.45     11.6     12.4    10.7    12.8     5.2–34.2
+Shephelah                  10       10      1.00     11.7     11.5    11.5    11.7    10.4–11.7
+Jezreel Valley            514       92      5.59     11.7     12.5    11.4    12.7     7.4–34.5
+Gaza Envelope             216       43      5.02     11.9     13.2    11.3    12.4     5.1–26.6
+Negev                     747       87      8.59     11.9     12.8    11.3    13.5     5.1–24.6
+Lachish Region           1190      106     11.23     12.0     13.8    11.3    14.0     8.0–28.4
+Sharon                   2526      127     19.89     12.4     13.0    11.3    14.0     8.7–19.6
+Greater Tel Aviv         1371       51     26.88     12.5     13.1    11.4    13.8     9.1–31.9
+Judea & Samaria          2991      182     16.43     12.6     13.8    11.5    14.6     6.6–29.5
+Jerusalem                 328       16     20.50     13.0     13.9    11.7    14.8     9.5–25.2
+
+  Mean of area medians:   11.6 min
+  Median of area medians: 11.7 min
+  Overall range:          5.0 – 56.5 min
 ```
-
 ---
 
 ## Design notes
