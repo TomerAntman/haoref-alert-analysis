@@ -205,124 +205,153 @@ working_df = (
 )
 
 print(f"Working df: {len(working_df):,} rows | {working_df['city'].nunique():,} cities")
-working_df.to_csv(outdir / "working_df.csv", index=False)
+# working_df_full: full working df with datetime column, saved before event construction
+working_df.to_csv(outdir / "working_df_full.csv", index=False)
 
 
-# ── 6. NEIGHBOR LOOKUP ────────────────────────────────────────────────────────
-# Sort by city + datetime. For every missile/uav row, the immediate previous
-# and next rows within the same city are its natural neighbors.
-# No clustering, no scoring — just adjacency.
+# ── 6. EVENT CONSTRUCTION ─────────────────────────────────────────────────────
+# Walk each city's timeline in chronological order.
+# An event is a contiguous run of missile/uav rows. Consecutive missile rows
+# with no pre_warning or ended between them belong to the same event.
+# The event's pre_warning = the row immediately before the run (if pre_warning).
+# The event's ended       = the row immediately after the run (if ended).
+# Orphan pre_warnings (no missile follows) and orphan endeds are silently skipped.
 
-grp = working_df.groupby("city", sort=False)
-working_df["prev_type"] = grp["alert_type"].shift(1)
-working_df["prev_time"] = grp["datetime"].shift(1)
-working_df["next_type"] = grp["alert_type"].shift(-1)
-working_df["next_time"] = grp["datetime"].shift(-1)
+ATTACK = {"missiles", "uav"}
 
-attack_rows = working_df[working_df["alert_type"].isin(["missiles", "uav"])].copy()
+def build_events(city_df: pd.DataFrame, city: str, area: str) -> list:
+    rows = city_df.to_dict("records")
+    n    = len(rows)
+    events = []
+    i = 0
+    while i < n:
+        r = rows[i]
+        if r["alert_type"] not in ATTACK:
+            i += 1
+            continue
+        # Optional pre_warning immediately before this run
+        pre = rows[i - 1] if i > 0 and rows[i - 1]["alert_type"] == "pre_warning" else None
+        # Consume all contiguous missile/uav rows
+        missiles = []
+        while i < n and rows[i]["alert_type"] in ATTACK:
+            missiles.append(rows[i])
+            i += 1
+        # Optional ended immediately after the run
+        ended = rows[i] if i < n and rows[i]["alert_type"] == "ended" else None
+        attack_types = sorted({m["alert_type"] for m in missiles})
+        events.append({
+            "city":           city,
+            "area":           area,
+            "date":           missiles[0]["datetime"].date(),
+            "alert_type":     " | ".join(attack_types),
+            "pre_time":       pre["datetime"]       if pre   else pd.NaT,
+            "first_missile":  missiles[0]["datetime"],
+            "last_missile":   missiles[-1]["datetime"],
+            "n_missiles":     len(missiles),
+            "ended_time":     ended["datetime"]     if ended else pd.NaT,
+        })
+    return events
 
 
-# ── 7. WARNING RECORDS ────────────────────────────────────────────────────────
-# A warning record exists when a missile row's immediate predecessor (same city)
-# is a pre_warning alert.
+all_events = []
+for (city, area), grp in working_df.groupby(["city", "area"], sort=False):
+    all_events.extend(build_events(grp.sort_values("datetime"), city, area))
 
-warning_df = attack_rows[attack_rows["prev_type"] == "pre_warning"].copy()
-warning_df["gap_min"] = (
-    warning_df["datetime"] - warning_df["prev_time"]
-).dt.total_seconds() / 60
+events_df = pd.DataFrame(all_events)
 
+# ── Derived columns ───────────────────────────────────────────────────────────
+def minutes(a, b):
+    delta = b - a
+    secs  = delta.dt.total_seconds()
+    return secs / 60
+
+events_df["warn_gap_min"]  = minutes(events_df["pre_time"],     events_df["first_missile"])
+events_df["end_gap_min"]   = minutes(events_df["last_missile"],  events_df["ended_time"])
+events_df["total_dur_min"] = minutes(events_df["pre_time"],      events_df["ended_time"])
+# total_dur falls back to missile-span when pre/ended are missing
+events_df["missile_dur_min"] = minutes(events_df["first_missile"], events_df["last_missile"])
+
+print(f"\nEvents built: {len(events_df):,} total")
+print(f"  with pre_warning:  {events_df['warn_gap_min'].notna().sum():,}")
+print(f"  with ended:        {events_df['end_gap_min'].notna().sum():,}")
+print(f"  full triplets:     {(events_df['warn_gap_min'].notna() & events_df['end_gap_min'].notna()).sum():,}")
+print(f"  multi-missile:     {(events_df['n_missiles'] > 1).sum():,}")
+
+
+# ── 7. DERIVED FLAT RECORDS (backward-compatible) ─────────────────────────────
+# These mirror the v3 output format so existing scripts keep working.
+
+# warning_records: one row per event that has a pre_warning
+warn_mask = events_df["warn_gap_min"].notna()
 warning_records = (
-    warning_df
-    .rename(columns={
-        "prev_time": "warning_time",
-        "datetime":  "missile_time",
-        "date":      "date",
-        "area":      "area",
-        "city":      "city",
-        "alert_type": "missile_type",
-    })
-    [["date", "warning_time", "missile_time", "gap_min", "city", "area", "missile_type"]]
+    events_df[warn_mask]
+    .rename(columns={"warn_gap_min": "gap_min", "alert_type": "missile_type"})
+    [["date", "pre_time", "first_missile", "gap_min", "city", "area", "missile_type"]]
+    .rename(columns={"pre_time": "warning_time", "first_missile": "missile_time"})
+    .reset_index(drop=True)
+)
+
+# ended_records: one row per event that has an ended
+end_mask = events_df["end_gap_min"].notna()
+ended_records = (
+    events_df[end_mask]
+    .rename(columns={"end_gap_min": "gap_min", "alert_type": "missile_type"})
+    [["date", "last_missile", "ended_time", "gap_min", "city", "area", "missile_type"]]
+    .rename(columns={"last_missile": "missile_time"})
     .reset_index(drop=True)
 )
 
 # Apply thresholds
 warning_valid = warning_records[
-    (warning_records["gap_min"] >= args.min_pre) &
-    (warning_records["gap_min"] <= args.max_pre)
+    warning_records["gap_min"].between(args.min_pre,  args.max_pre)
+].copy()
+ended_valid = ended_records[
+    ended_records["gap_min"].between(args.min_post, args.max_post)
 ].copy()
 
 print(f"\nWarning records (raw):   {len(warning_records):,}")
 print(f"Warning records (valid): {len(warning_valid):,}  "
       f"(gap {args.min_pre}–{args.max_pre} min)")
-
-
-# ── 8. ENDED RECORDS ──────────────────────────────────────────────────────────
-# An ended record exists when a missile row's immediate successor (same city)
-# is an ended alert.
-
-ended_df = attack_rows[attack_rows["next_type"] == "ended"].copy()
-ended_df["gap_min"] = (
-    ended_df["next_time"] - ended_df["datetime"]
-).dt.total_seconds() / 60
-
-ended_records = (
-    ended_df
-    .rename(columns={
-        "datetime":  "missile_time",
-        "next_time": "ended_time",
-        "date":      "date",
-        "area":      "area",
-        "city":      "city",
-        "alert_type": "missile_type",
-    })
-    [["date", "missile_time", "ended_time", "gap_min", "city", "area", "missile_type"]]
-    .reset_index(drop=True)
-)
-
-# Apply thresholds
-ended_valid = ended_records[
-    (ended_records["gap_min"] >= args.min_post) &
-    (ended_records["gap_min"] <= args.max_post)
-].copy()
-
 print(f"\nEnded records (raw):     {len(ended_records):,}")
 print(f"Ended records (valid):   {len(ended_valid):,}  "
       f"(gap {args.min_post}–{args.max_post} min)")
 
+# Full-triplet events with thresholds applied
+events_valid = events_df[
+    events_df["warn_gap_min"].between(args.min_pre,  args.max_pre)  &
+    events_df["end_gap_min"].between(args.min_post, args.max_post)
+].copy()
+print(f"\nFull triplet events (valid thresholds): {len(events_valid):,}")
 
-# ── 9. SUMMARY STATISTICS ─────────────────────────────────────────────────────
+
+# ── 8. SUMMARY STATISTICS ─────────────────────────────────────────────────────
 def area_stats(label, df_in, gap_col):
     df = df_in[[gap_col, "area", "city"]].dropna()
     if df.empty:
         print(f"\n{label}: no records")
         return
 
+    by_city = df.groupby(["area", "city"])[gap_col].median()
     stats = (
         df.groupby("area")[gap_col]
         .agg(n="count", median="median", mean="mean",
              q25=lambda x: x.quantile(0.25),
              q75=lambda x: x.quantile(0.75),
              min="min", max="max")
+        .join(by_city.groupby("area").count().rename("cities"))
+        .assign(evt_per_city=lambda d: (d["n"] / d["cities"]).round(2))
         .sort_values("median")
         .reset_index()
     )
-    cities_per_area = (
-        df.groupby("area")["city"]
-        .nunique()
-        .rename("cities")
-        .reset_index()
-    )
-    stats = stats.merge(cities_per_area, on="area", how="left")
-    stats["events_per_city"] = stats["n"] / stats["cities"]
     stats["range"] = stats["min"].round(1).astype(str) + "–" + stats["max"].round(1).astype(str)
 
     print(f"\n{label}")
-    print(f"{'Area':<22} {'n':>6} {'cities':>8} {'evt/city':>9} {'median':>8} {'mean':>8} {'Q25':>7} {'Q75':>7} {'range':>12}")
-    # "n" means number of records (warning→missile or missile→ended) for this area.
-    print("─" * 97)
+    w = 97
+    print(f"{'Area':<22} {'n':>6} {'cities':>7} {'evt/city':>9} {'median':>8} {'mean':>8} {'Q25':>7} {'Q75':>7} {'range':>12}")
+    print("─" * w)
     for _, r in stats.iterrows():
-        print(f"{r['area']:<22} {r['n']:>6.0f} {r['cities']:>8.0f} {r['events_per_city']:>9.2f} {r['median']:>8.1f} {r['mean']:>8.1f} "
-              f"{r['q25']:>7.1f} {r['q75']:>7.1f} {r['range']:>12}")
+        print(f"{r['area']:<22} {r['n']:>6.0f} {r['cities']:>7.0f} {r['evt_per_city']:>9.2f} "
+              f"{r['median']:>8.1f} {r['mean']:>8.1f} {r['q25']:>7.1f} {r['q75']:>7.1f} {r['range']:>12}")
 
     medians = stats["median"]
     print(f"\n  Mean of area medians:   {medians.mean():.1f} min")
@@ -331,21 +360,27 @@ def area_stats(label, df_in, gap_col):
 
 
 print("\n=== SUMMARY STATISTICS ===")
-area_stats("Warning → Missiles (gap in minutes)", warning_valid, "gap_min")
-area_stats("Missiles → Ended   (gap in minutes)", ended_valid,   "gap_min")
+area_stats("Warning → Missiles (gap in minutes)",    warning_valid, "gap_min")
+area_stats("Missiles → Ended   (gap in minutes)",    ended_valid,   "gap_min")
+area_stats("Warning → Ended    (total duration min)", events_valid,  "total_dur_min")
 
 
-# ── 10. EXPORT ────────────────────────────────────────────────────────────────
-working_df.drop(columns=["prev_type","prev_time","next_type","next_time"]).to_csv(
-    outdir / "working_df.csv", index=False)
-warning_records.to_csv(outdir / "warning_records_raw.csv",   index=False)
-warning_valid.to_csv(  outdir / "warning_records_valid.csv", index=False)
-ended_records.to_csv(  outdir / "ended_records_raw.csv",     index=False)
-ended_valid.to_csv(    outdir / "ended_records_valid.csv",   index=False)
+# ── 9. EXPORT ─────────────────────────────────────────────────────────────────
+# working_df_full.csv already written above (with datetime)
+working_df.drop(columns=["datetime"]).to_csv(
+                           outdir / "working_df.csv",             index=False)
+events_df.to_csv(          outdir / "events_raw.csv",             index=False)
+events_valid.to_csv(       outdir / "events_valid.csv",           index=False)
+warning_records.to_csv(    outdir / "warning_records_raw.csv",    index=False)
+warning_valid.to_csv(      outdir / "warning_records_valid.csv",  index=False)
+ended_records.to_csv(      outdir / "ended_records_raw.csv",      index=False)
+ended_valid.to_csv(        outdir / "ended_records_valid.csv",    index=False)
 
 print(f"\nOutputs written to: {outdir.resolve()}")
 print("  working_df.csv              — one row per (datetime, alert_type, city)")
-print("  warning_records_raw.csv     — all warning→missile pairs (pre threshold filter)")
+print("  events_raw.csv              — one row per event per city (all events)")
+print("  events_valid.csv            — full triplets within threshold windows")
+print("  warning_records_raw.csv     — one row per event with a pre_warning (pre-filter)")
 print("  warning_records_valid.csv   — filtered by --min-pre / --max-pre")
-print("  ended_records_raw.csv       — all missile→ended pairs (pre threshold filter)")
+print("  ended_records_raw.csv       — one row per event with an ended (pre-filter)")
 print("  ended_records_valid.csv     — filtered by --min-post / --max-post")
