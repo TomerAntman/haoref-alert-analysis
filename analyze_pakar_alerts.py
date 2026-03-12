@@ -205,8 +205,6 @@ working_df = (
 )
 
 print(f"Working df: {len(working_df):,} rows | {working_df['city'].nunique():,} cities")
-# working_df_full: full working df with datetime column, saved before event construction
-working_df.to_csv(outdir / "working_df_full.csv", index=False)
 
 
 # ── 6. EVENT CONSTRUCTION ─────────────────────────────────────────────────────
