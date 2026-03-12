@@ -31,8 +31,8 @@ The neighbor lookup is purely positional: no clustering, no scoring. If a missil
 ## Repo structure
 
 ```
-├── telegram_scraper.py          # Download alerts from Telegram channel
-├── pakar_pipeline_v3.py         # Main analysis pipeline
+├── download_from_pakar.py          # Download alerts from Telegram channel
+├── analyze_pakar_alerts.py         # Main analysis pipeline
 ├── districts_eng_with_hebrew_areas.json   # Official city ↔ district mapping
 └── README.md
 ```
@@ -40,9 +40,8 @@ The neighbor lookup is purely positional: no clustering, no scoring. If a missil
 ---
 
 ## Requirements
-
-```
-pip install pandas telethon
+```bash
+conda env create -f environment.yml
 ```
 
 ---
@@ -52,7 +51,11 @@ pip install pandas telethon
 ### 1. Download from Telegram
 
 ```bash
-python telegram_scraper.py --channel PikudHaOref --output PikudHaOref_alerts.csv
+python download_from_pakar.py \
+    --channel PikudHaOref_all \
+    --api_id YOUR_API_ID --api_hash YOUR_API_HASH \
+    --start_date 2026-02-28 --end_date 2026-03-12 \ # end_date is optional.
+    --output PikudHaOref_alerts.csv 
 ```
 
 Produces a CSV with columns `date, text`.
@@ -60,7 +63,7 @@ Produces a CSV with columns `date, text`.
 ### 2. Run the pipeline
 
 ```bash
-python pakar_pipeline_v3.py \
+python analyze_pakar_alerts.py \
   --input      PikudHaOref_alerts.csv \
   --mapping    districts_eng_with_hebrew_areas.json \
   --output-dir ./output
@@ -73,10 +76,10 @@ python pakar_pipeline_v3.py \
 | `--input` | `PikudHaOref_alerts.csv` | Input CSV from Telegram scraper |
 | `--mapping` | `districts_eng_with_hebrew_areas.json` | City/district mapping file |
 | `--output-dir` | `.` | Directory for output CSVs |
-| `--min-pre` | `0.5` | Minimum gap (minutes) to count a warning link |
+| `--min-pre` | `1.0` | Minimum gap (minutes) to count a warning link |
 | `--max-pre` | `30.0` | Maximum gap (minutes) to count a warning link |
-| `--min-post` | `2.0` | Minimum gap (minutes) to count an ended link |
-| `--max-post` | `90.0` | Maximum gap (minutes) to count an ended link |
+| `--min-post` | `5.0` | Minimum gap (minutes) to count an ended link |
+| `--max-post` | `60.0` | Maximum gap (minutes) to count an ended link |
 
 ---
 
